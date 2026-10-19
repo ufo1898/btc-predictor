@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BTC 次日预测台</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232fd39a'/%3E%3Ctext x='32' y='45' font-family='Arial' font-size='38' font-weight='700' text-anchor='middle' fill='%2307101f'%3EB%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">₿</div>
+        <div>
+          <h1>BTC 次日预测台</h1>
+          <p>历史走势 · 多因子模型 · 每日复盘</p>
+        </div>
+      </div>
+      <div class="actions">
+        <span id="status-dot" class="status-dot"></span>
+        <span id="status-text">加载中</span>
+        <button id="refresh-btn" class="btn primary">更新数据并重训</button>
+      </div>
+    </header>
+
+    <div id="banner" class="banner hidden"></div>
+
+    <main>
+      <section class="hero">
+        <div class="price-card">
+          <div class="eyebrow">BTC / USDT · 最新完整日线</div>
+          <div class="price" id="btc-price">--</div>
+          <div class="sub" id="btc-change">--</div>
+          <div class="tiny" id="btc-date">--</div>
+        </div>
+
+        <div class="pred-card" id="pred-card">
+          <div class="eyebrow">次日预测 <span id="pred-target">--</span></div>
+          <div class="pred-main">
+            <span id="pred-direction">--</span>
+            <span id="pred-prob" class="prob">--</span>
+            <span id="pred-signal" class="signal">--</span>
+          </div>
+          <div class="pred-price">预测收盘 <b id="pred-close">--</b></div>
+          <div class="pred-band" id="pred-band">--</div>
+        </div>
+
+        <div class="metric-grid">
+          <div class="metric">
+            <span>全样本胜率</span>
+            <b id="m-acc">--</b>
+            <small id="m-acc-sub">--</small>
+          </div>
+          <div class="metric">
+            <span>近 90 天</span>
+            <b id="m-recent">--</b>
+            <small id="m-recent-sub">--</small>
+          </div>
+          <div class="metric">
+            <span>实盘记录</span>
+            <b id="m-live">--</b>
+            <small id="m-live-sub">--</small>
+          </div>
+          <div class="metric">
+            <span>高置信度胜率</span>
+            <b id="m-high">--</b>
+            <small id="m-high-sub">--</small>
+          </div>
+          <div class="metric">
+            <span>收盘价 MAPE</span>
+            <b id="m-mape">--</b>
+            <small>walk-forward 回测</small>
+          </div>
+          <div class="metric">
+            <span>理论多空收益</span>
+            <b id="m-strategy">--</b>
+            <small>未计手续费与滑点</small>
+          </div>
+        </div>
+      </section>
+
+      <section class="card chart-card">
+        <div class="card-head">
+          <div>
+            <h2>价格与预测</h2>
+            <p id="chart-sub">日线 · 洋红色为模型预测 · 虚线为 1σ 误差带</p>
+          </div>
+          <div class="range-tabs" id="range-tabs">
+            <button data-range="90">90D</button>
+            <button data-range="180" class="active">180D</button>
+            <button data-range="365">1Y</button>
+            <button data-range="all">全部</button>
+          </div>
+        </div>
+        <div id="chart" class="chart"></div>
+        <div class="legend-note">
+          <span class="dot up"></span>上涨
+          <span class="dot down"></span>下跌
+          <span class="dot pred"></span>预测
+          <span class="dot good"></span>预测正确
+          <span class="dot bad"></span>预测错误
+        </div>
+      </section>
+
+      <nav class="tabs" id="tabs">
+        <button data-tab="backtest" class="active">回测表现</button>
+        <button data-tab="validation">验证记录</button>
+        <button data-tab="failures">失败复盘</button>
+        <button data-tab="features">特征贡献</button>
+        <button data-tab="news">新闻情绪</button>
+        <button data-tab="data">数据源</button>
+        <button data-tab="report">日报</button>
+      </nav>
+
+      <section id="tab-backtest" class="tab-panel active">
+        <div class="two-col">
+          <div class="card">
+            <div class="card-head"><div><h2>滚动 30 天胜率</h2><p>看模型是否在退化，而不是只看总胜率</p></div></div>
+            <div id="rolling-chart" class="chart small"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><div><h2>模型对比</h2><p>同日预测口径下的基线对照</p></div></div>
+            <div id="model-table" class="table-wrap"></div>
+          </div>
+        </div>
+        <div class="two-col">
+          <div class="card">
+            <div class="card-head"><div><h2>置信度分层</h2><p>高置信度是否真的更准</p></div></div>
+            <div id="confidence-table" class="table-wrap"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><div><h2>混淆矩阵</h2><p>上涨/下跌两侧分别错在哪</p></div></div>
+            <div id="confusion" class="confusion"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-validation" class="tab-panel">
+        <div class="card">
+          <div class="card-head"><div><h2>实盘预测验证</h2><p>每日预测写入记录，次日收盘后自动比对</p></div></div>
+          <div id="live-table" class="table-wrap"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><div><h2>最近回测验证</h2><p>模型在历史 walk-forward 中的最近预测</p></div></div>
+          <div id="validation-table" class="table-wrap"></div>
+        </div>
+      </section>
+
+      <section id="tab-failures" class="tab-panel">
+        <div class="card">
+          <div class="card-head"><div><h2>失败复盘</h2><p>不只记录对错，也记录可能的宏观/新闻/技术原因</p></div></div>
+          <div id="failure-list" class="failure-list"></div>
+        </div>
+      </section>
+
+      <section id="tab-features" class="tab-panel">
+        <div class="card">
+          <div class="card-head"><div><h2>特征贡献</h2><p>基于最近 holdout 的 permutation importance，仅表示预测贡献，不是因果</p></div></div>
+          <div id="importance-chart" class="chart small"></div>
+        </div>
+      </section>
+
+      <section id="tab-news" class="tab-panel">
+        <div class="card">
+          <div class="card-head"><div><h2>最近新闻与情绪</h2><p>关键词情绪打分，只作为模型的一个弱特征</p></div></div>
+          <div id="news-list" class="news-list"></div>
+        </div>
+      </section>
+
+      <section id="tab-data" class="tab-panel">
+        <div class="two-col">
+          <div class="card">
+            <div class="card-head"><div><h2>数据源状态</h2><p>抓取失败不会静默填充成 0，缺失会交给模型处理</p></div></div>
+            <div id="sources-table" class="table-wrap"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><div><h2>模型信息</h2><p>当前版本与训练规模</p></div></div>
+            <div id="model-info" class="model-info"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-report" class="tab-panel">
+        <div class="card">
+          <div class="card-head"><div><h2>自动日报</h2><p>每天更新后生成，可直接留档</p></div></div>
+          <pre id="report" class="report"></pre>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>研究用途，不构成投资建议。</span>
+      <span id="footer-time">--</span>
+    </footer>
+  </div>
+
+  <script src="/static/echarts.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
