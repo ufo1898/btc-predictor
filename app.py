@@ -10,8 +10,9 @@ from typing import Any
 import pandas as pd
 from flask import Flask, jsonify, render_template, request
 
-from config import DATA_DIR, MODEL_DIR, REPORT_DIR, TEMPLATE_DIR, STATIC_DIR
+from config import ASSET_SYMBOLS, DATA_DIR, MODEL_DIR, REPORT_DIR, TEMPLATE_DIR, STATIC_DIR
 from src.analysis import failure_table, recent_validation
+from src.cross_asset import load_cross_asset
 from src.modeling import load_backtest, load_importance, load_metadata, load_prediction
 from src.tracking import live_metrics, load_predictions, recent_predictions
 
@@ -41,6 +42,8 @@ def _num(value: Any) -> float | None:
 def _sources() -> list[dict[str, Any]]:
     files = [
         ("BTC 日线", "btc_daily.csv", "date"),
+        ("ETH 日线", "eth_daily.csv", "date"),
+        ("SOL 日线", "sol_daily.csv", "date"),
         ("合并数据", "dataset_raw.csv", "date"),
         ("特征数据", "dataset_features.csv", "date"),
         ("恐慌贪婪", "fear_greed.csv", "date"),
@@ -48,7 +51,12 @@ def _sources() -> list[dict[str, Any]]:
         ("合约数据", "derivatives.csv", "date"),
         ("新闻", "news_raw.csv", "date"),
         ("回测", "backtest.csv", "date"),
+        ("周线回测", "backtest_weekly.csv", "date"),
+        ("跨资产回测 BTC", "backtest_cross_btc.csv", "date"),
+        ("跨资产回测 ETH", "backtest_cross_eth.csv", "date"),
+        ("跨资产回测 SOL", "backtest_cross_sol.csv", "date"),
         ("实盘预测", "predictions.csv", "target_date"),
+        ("实盘周预测", "weekly_predictions.csv", "target_date"),
     ]
     out = []
     for label, name, date_col in files:
@@ -137,6 +145,29 @@ def _news() -> list[dict[str, Any]]:
     ]
 
 
+def _cross_asset_payload() -> dict[str, Any]:
+    summary = load_cross_asset()
+    out: dict[str, Any] = {}
+    for name, info in (summary or {}).items():
+        metrics = info.get("metrics") or {}
+        all_metrics = metrics.get("all") or {}
+        out[name] = {
+            "symbol": info.get("symbol", ASSET_SYMBOLS.get(name, name)),
+            "samples": info.get("backtest_samples") or all_metrics.get("samples"),
+            "start": info.get("start"),
+            "end": info.get("end"),
+            "accuracy": all_metrics.get("accuracy"),
+            "auc": all_metrics.get("auc"),
+            "strategy_return": all_metrics.get("strategy_return"),
+            "strategy_return_gross": all_metrics.get("strategy_return_gross"),
+            "brier": all_metrics.get("brier"),
+            "ece": all_metrics.get("ece"),
+            "binom_p_two_sided": all_metrics.get("binom_p_two_sided"),
+            "recent_90": metrics.get("recent_90") or {},
+        }
+    return out
+
+
 def dashboard_payload() -> dict[str, Any]:
     market = _market()
     prediction = load_prediction()
@@ -158,20 +189,27 @@ def dashboard_payload() -> dict[str, Any]:
             "all": metrics.get("all", {}),
             "recent_90": metrics.get("recent_90", {}),
             "rolling_30": metrics.get("rolling_30", []),
+            "weekly": metrics.get("weekly", {}),
             "live": live_metrics(),
+            "live_weekly": live_metrics(weekly=True),
+            "cost_model": metrics.get("cost_model") or metadata.get("cost_model") or {},
+            "calibration_method": metadata.get("calibration_method"),
         },
         "markers": _markers(),
         "validation": recent_validation(12),
         "live_predictions": recent_predictions(12),
+        "weekly_predictions": recent_predictions(12, weekly=True),
         "failures": failure_table(10),
         "news": _news(),
         "importance": importance_rows,
         "sources": _sources(),
+        "cross_asset": _cross_asset_payload(),
         "model": {
             "version": metadata.get("version"),
             "trained_at": metadata.get("trained_at"),
             "training_rows": metadata.get("training_rows"),
             "last_training_date": metadata.get("last_training_date"),
+            "calibration_method": metadata.get("calibration_method"),
         },
         "report": report,
     }

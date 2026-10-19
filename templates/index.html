@@ -46,6 +46,19 @@
           <div class="pred-band" id="pred-band">--</div>
         </div>
 
+        <div class="pred-card weekly" id="weekly-card">
+          <div class="eyebrow">周线预测（7 天）<span id="weekly-target">--</span></div>
+          <div class="pred-main">
+            <span id="weekly-direction">--</span>
+            <span id="weekly-prob" class="prob">--</span>
+            <span id="weekly-signal" class="signal">--</span>
+          </div>
+          <div class="pred-price">预测收盘 <b id="weekly-close">--</b></div>
+          <div class="pred-band" id="weekly-band">--</div>
+        </div>
+      </section>
+
+      <section class="card stats-card">
         <div class="metric-grid">
           <div class="metric">
             <span>全样本胜率</span>
@@ -73,9 +86,19 @@
             <small>walk-forward 回测</small>
           </div>
           <div class="metric">
-            <span>理论多空收益</span>
-            <b id="m-strategy">--</b>
-            <small>未计手续费与滑点</small>
+            <span>扣费后多空收益</span>
+            <b id="m-net">--</b>
+            <small id="m-net-sub">--</small>
+          </div>
+          <div class="metric">
+            <span>胜率显著性</span>
+            <b id="m-sig">--</b>
+            <small id="m-sig-sub">--</small>
+          </div>
+          <div class="metric">
+            <span>周线胜率</span>
+            <b id="m-weekly">--</b>
+            <small id="m-weekly-sub">--</small>
           </div>
         </div>
       </section>
@@ -108,6 +131,7 @@
         <button data-tab="validation">验证记录</button>
         <button data-tab="failures">失败复盘</button>
         <button data-tab="features">特征贡献</button>
+        <button data-tab="cross">跨资产</button>
         <button data-tab="news">新闻情绪</button>
         <button data-tab="data">数据源</button>
         <button data-tab="report">日报</button>
@@ -134,6 +158,21 @@
             <div id="confusion" class="confusion"></div>
           </div>
         </div>
+        <div class="two-col">
+          <div class="card">
+            <div class="card-head"><div><h2>统计显著性</h2><p>胜率是否显著优于 50% 随机基线</p></div></div>
+            <div id="significance-info" class="info-list"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><div><h2>成本模型</h2><p>手续费、滑点与资金费对收益的吞噬</p></div></div>
+            <div id="cost-info" class="info-list"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head"><div><h2>置信度校准</h2><p>校准后的置信度是否更接近真实胜率（ECE 越小越好）</p></div></div>
+          <div id="calibration-summary" class="calib-summary"></div>
+          <div id="calibration-table" class="table-wrap"></div>
+        </div>
       </section>
 
       <section id="tab-validation" class="tab-panel">
@@ -158,6 +197,17 @@
         <div class="card">
           <div class="card-head"><div><h2>特征贡献</h2><p>基于最近 holdout 的 permutation importance，仅表示预测贡献，不是因果</p></div></div>
           <div id="importance-chart" class="chart small"></div>
+        </div>
+      </section>
+
+      <section id="tab-cross" class="tab-panel">
+        <div class="card">
+          <div class="card-head"><div><h2>跨资产泛化检验</h2><p>相同特征集与训练流程分别跑 BTC / ETH / SOL，检验是否只是 BTC 特例</p></div></div>
+          <div id="cross-asset-table" class="table-wrap"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><div><h2>资产对比</h2><p>方向胜率与扣费后多空收益</p></div></div>
+          <div id="cross-asset-chart" class="chart small"></div>
         </div>
       </section>
 

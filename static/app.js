@@ -174,6 +174,33 @@ function hideBanner() {
   $('banner').classList.add('hidden');
 }
 
+function fillPredCard(prefix, obj) {
+  if (!obj || !obj.target_date) {
+    $(`${prefix}-target`).textContent = '--';
+    $(`${prefix}-direction`).textContent = '--';
+    $(`${prefix}-prob`).textContent = '--';
+    $(`${prefix}-signal`).textContent = '--';
+    $(`${prefix}-signal`).className = 'signal';
+    $(`${prefix}-close`).textContent = '--';
+    $(`${prefix}-band`).textContent = '--';
+    return;
+  }
+  $(`${prefix}-target`).textContent = obj.target_date;
+  const dir = isUp(obj.direction) ? 'up' : 'down';
+  const dirEl = $(`${prefix}-direction`);
+  dirEl.textContent = obj.direction_cn || (dir === 'up' ? '上涨' : '下跌');
+  dirEl.className = dir;
+  const prob = dir === 'up' ? obj.prob_up : 1 - obj.prob_up;
+  $(`${prefix}-prob`).textContent = `${dir === 'up' ? '上涨' : '下跌'}概率 ${(Number(prob) * 100).toFixed(1)}%`;
+  const confidence = Number(obj.confidence ?? 0);
+  const signal = confidence >= 0.65 ? '强信号' : confidence >= 0.55 ? '中信号' : '弱信号';
+  const signalEl = $(`${prefix}-signal`);
+  signalEl.textContent = signal;
+  signalEl.className = 'signal ' + (confidence >= 0.65 ? 'strong' : confidence >= 0.55 ? 'mid' : 'weak');
+  $(`${prefix}-close`).textContent = formatUsd(obj.predicted_close);
+  $(`${prefix}-band`).textContent = `1σ ${formatUsd(obj.interval_low)} – ${formatUsd(obj.interval_high)} · 幅度 ${formatSignedPct(obj.predicted_return)}`;
+}
+
 function renderHeader() {
   const data = state.data;
   const last = data.market && data.market.last;
@@ -187,35 +214,16 @@ function renderHeader() {
   }
 
   const p = data.prediction || {};
-  if (p.target_date) {
-    $('pred-target').textContent = p.target_date;
-    const dir = isUp(p.direction) ? 'up' : 'down';
-    const dirEl = $('pred-direction');
-    dirEl.textContent = p.direction_cn || (dir === 'up' ? '上涨' : '下跌');
-    dirEl.className = dir;
-    const prob = dir === 'up' ? p.prob_up : 1 - p.prob_up;
-    $('pred-prob').textContent = `${dir === 'up' ? '上涨' : '下跌'}概率 ${(Number(prob) * 100).toFixed(1)}%`;
-    const confidence = Number(p.confidence ?? 0);
-    const signal = confidence >= 0.65 ? '强信号' : confidence >= 0.55 ? '中信号' : '弱信号';
-    const signalEl = $('pred-signal');
-    signalEl.textContent = signal;
-    signalEl.className = 'signal ' + (confidence >= 0.65 ? 'strong' : confidence >= 0.55 ? 'mid' : 'weak');
-    $('pred-close').textContent = formatUsd(p.predicted_close);
-    $('pred-band').textContent = `1σ ${formatUsd(p.interval_low)} – ${formatUsd(p.interval_high)} · 幅度 ${formatSignedPct(p.predicted_return)}`;
-  } else {
-    $('pred-target').textContent = '--';
-    $('pred-direction').textContent = '--';
-    $('pred-prob').textContent = '--';
-    $('pred-signal').textContent = '--';
-    $('pred-signal').className = 'signal';
-    $('pred-close').textContent = '--';
-    $('pred-band').textContent = '--';
-  }
+  fillPredCard('pred', p);
+  fillPredCard('weekly', p.weekly || {});
 
   const m = data.metrics || {};
   const all = m.all || {};
   const recent = m.recent_90 || {};
   const live = m.live || {};
+  const weekly = m.weekly || {};
+  const weeklyAll = weekly.all || {};
+  const weeklyNon = (weekly.non_overlap || {}).all || {};
   $('m-acc').textContent = formatPct(all.accuracy);
   $('m-acc-sub').textContent = `n=${all.samples ?? 0} · 始终看涨 ${formatPct(all.always_up_accuracy)}`;
   $('m-recent').textContent = formatPct(recent.accuracy);
@@ -225,7 +233,15 @@ function renderHeader() {
   $('m-high').textContent = formatPct(all.high_conf_accuracy);
   $('m-high-sub').textContent = `≥65% · n=${all.high_conf_samples ?? 0} · 覆盖 ${formatPct(all.high_conf_coverage)}`;
   $('m-mape').textContent = formatPct(all.mape_close, 2);
-  $('m-strategy').textContent = formatPct(all.strategy_return);
+  $('m-net').textContent = formatSignedPct(all.strategy_return);
+  $('m-net').className = pctClass(all.strategy_return);
+  $('m-net-sub').textContent = `未计成本 ${formatSignedPct(all.strategy_return_gross)} · 拖累 ${formatSignedPct(all.strategy_cost_drag)}`;
+  const sigP = all.binom_p_two_sided;
+  $('m-sig').textContent = sigP == null ? '--' : `p=${Number(sigP).toFixed(3)}`;
+  $('m-sig').className = sigP == null ? '' : all.significant_at_5pct ? 'green' : 'red';
+  $('m-sig-sub').textContent = sigP == null ? '--' : all.significant_at_5pct ? '显著优于随机（5%）' : '不显著，无法拒绝随机';
+  $('m-weekly').textContent = formatPct(weeklyAll.accuracy);
+  $('m-weekly-sub').textContent = `n=${weeklyAll.samples ?? 0} · 非重叠 ${formatPct(weeklyNon.accuracy, 1)}`;
   $('footer-time').textContent = `页面更新 ${formatTime(data.generated_at)}`;
 }
 
@@ -494,7 +510,8 @@ function renderModelTable() {
     return;
   }
   const rows = [
-    ['HGB 多因子', all.samples, formatPct(all.accuracy), formatPct(recent.accuracy), formatPct(all.balanced_accuracy), all.auc == null ? '--' : Number(all.auc).toFixed(3), formatPct(all.strategy_return)],
+    ['HGB（校准后）', all.samples, formatPct(all.accuracy), formatPct(recent.accuracy), formatPct(all.balanced_accuracy), all.auc == null ? '--' : Number(all.auc).toFixed(3), formatPct(all.strategy_return)],
+    ['HGB（原始概率）', all.samples, formatPct(all.raw_accuracy), formatPct(recent.raw_accuracy), '--', all.auc_raw == null ? '--' : Number(all.auc_raw).toFixed(3), '--'],
     ['逻辑回归', all.samples, formatPct(all.logistic_accuracy), formatPct(recent.logistic_accuracy), '--', '--', '--'],
     ['始终看涨', all.samples, formatPct(all.always_up_accuracy), formatPct(recent.always_up_accuracy), '--', '--', '--'],
     ['7 日动量', all.samples, formatPct(all.momentum_accuracy), formatPct(recent.momentum_accuracy), '--', '--', '--'],
@@ -506,7 +523,7 @@ function renderModelTable() {
     }
     return `<span class="mono">${cell ?? '--'}</span>`;
   }));
-  $('model-table').innerHTML = table(['模型', '样本', '全样本', '近90天', '平衡胜率', 'AUC', '策略收益'], rows);
+  $('model-table').innerHTML = table(['模型', '样本', '全样本', '近90天', '平衡胜率', 'AUC', '扣费后收益'], rows);
 }
 
 function renderConfidence() {
@@ -547,6 +564,186 @@ function renderConfusion() {
       <small>上涨 precision ${formatPct(all.precision_up)} · recall ${formatPct(all.recall_up)} · F1 ${formatPct(all.f1_up)}</small>
     </div>
   `;
+}
+
+function renderSignificance() {
+  const el = $('significance-info');
+  const all = (state.data.metrics || {}).all || {};
+  if (all.binom_p_two_sided == null) {
+    el.innerHTML = empty();
+    return;
+  }
+  el.innerHTML = `
+    <div class="info-row"><span>样本数 / 胜率</span><b>${all.samples ?? '--'} 天 / ${formatPct(all.accuracy)}</b></div>
+    <div class="info-row"><span>原始概率决策胜率</span><b>${formatPct(all.raw_accuracy, 2)}（校准后翻转 ${all.raw_decision_flips ?? 0} 天）</b></div>
+    <div class="info-row"><span>超额胜率（相对 50%）</span><b class="${all.edge >= 0 ? 'green' : 'red'}">${formatSignedPct(all.edge, 2)}</b></div>
+    <div class="info-row"><span>二项检验（双侧）p 值</span><b>${Number(all.binom_p_two_sided).toFixed(4)}</b></div>
+    <div class="info-row"><span>单侧 p 值（优于随机）</span><b>${Number(all.binom_p_greater).toFixed(4)}</b></div>
+    <div class="info-row"><span>bootstrap 95% 置信区间</span><b>${formatPct(all.bootstrap_ci_low, 2)} – ${formatPct(all.bootstrap_ci_high, 2)}</b></div>
+    <div class="info-row"><span>块 bootstrap 95% 置信区间</span><b>${formatPct(all.block_bootstrap_ci_low, 2)} – ${formatPct(all.block_bootstrap_ci_high, 2)}</b></div>
+    <div class="info-row"><span>结论</span><b class="${all.significant_at_5pct ? 'green' : 'red'}">${all.significant_at_5pct ? '5% 水平下显著优于随机' : '不显著，可能是运气'}</b></div>
+  `;
+}
+
+function renderCost() {
+  const el = $('cost-info');
+  const all = (state.data.metrics || {}).all || {};
+  const cm = (state.data.metrics || {}).cost_model || {};
+  if (all.strategy_return == null) {
+    el.innerHTML = empty();
+    return;
+  }
+  el.innerHTML = `
+    <div class="info-row"><span>扣费后多空收益</span><b class="${pctClass(all.strategy_return)}">${formatSignedPct(all.strategy_return)}</b></div>
+    <div class="info-row"><span>未计成本收益</span><b class="${pctClass(all.strategy_return_gross)}">${formatSignedPct(all.strategy_return_gross)}</b></div>
+    <div class="info-row"><span>成本拖累</span><b class="red">${formatSignedPct(all.strategy_cost_drag)}</b></div>
+    <div class="info-row"><span>手续费合计（单利）</span><b>${formatPct(all.fees_paid, 2)}</b></div>
+    <div class="info-row"><span>滑点合计（单利）</span><b>${formatPct(all.slippage_paid, 2)}</b></div>
+    <div class="info-row"><span>资金费合计（单利）</span><b>${formatPct(all.funding_paid, 2)}</b></div>
+    <div class="info-row"><span>日均换手</span><b>${all.turnover_per_day == null ? '--' : Number(all.turnover_per_day).toFixed(2)} ×</b></div>
+    <div class="info-row"><span>最大回撤 / Sharpe</span><b>${formatPct(all.max_drawdown)} / ${all.sharpe == null ? '--' : Number(all.sharpe).toFixed(2)}</b></div>
+    <div class="info-row"><span>始终做多基准</span><b class="${pctClass(all.always_long_return)}">${formatSignedPct(all.always_long_return)}</b></div>
+    <div class="info-row"><span>假设</span><b class="wrap">手续费 ${(Number(cm.taker_fee_rate || 0) * 100).toFixed(3)}%/边 · 滑点 ${(Number(cm.slippage_rate || 0) * 100).toFixed(3)}%/边 · 资金费 ${cm.funding_settlements_per_day ?? 3} 次/天</b></div>
+  `;
+}
+
+function renderCalibration() {
+  const all = (state.data.metrics || {}).all || {};
+  const method = (state.data.metrics || {}).calibration_method || 'sigmoid';
+  const summaryEl = $('calibration-summary');
+  const tableEl = $('calibration-table');
+  if (all.ece == null) {
+    summaryEl.innerHTML = '';
+    tableEl.innerHTML = empty();
+    return;
+  }
+  const brierRaw = all.brier_raw == null ? '--' : Number(all.brier_raw).toFixed(4);
+  summaryEl.innerHTML = `
+    <span class="pill">方法：${escapeHtml(method)}（每折交叉验证拟合）</span>
+    <span class="pill">Brier：<b>${Number(all.brier).toFixed(4)}</b>（校准前 ${brierRaw}）</span>
+    <span class="pill">ECE：<b>${Number(all.ece).toFixed(4)}</b></span>
+    <span class="pill">log loss：<b>${Number(all.log_loss).toFixed(4)}</b></span>
+  `;
+  const rows = (all.reliability || []).map((b) => {
+    const gapCls = Math.abs(b.gap) <= 0.03 ? 'green' : Math.abs(b.gap) <= 0.07 ? 'amber' : 'red';
+    return [
+      `<span class="mono">${escapeHtml(b.range)}</span>`,
+      `<span class="mono">${b.count}</span>`,
+      `<span class="mono">${formatPct(b.avg_confidence, 2)}</span>`,
+      `<span class="mono">${formatPct(b.accuracy, 2)}</span>`,
+      `<span class="mono ${gapCls}">${(Number(b.gap) * 100).toFixed(2)}%</span>`,
+    ];
+  });
+  tableEl.innerHTML = table(['置信度区间', '样本', '平均置信度', '实际胜率', '偏差'], rows);
+}
+
+function renderCrossAsset() {
+  const tableEl = $('cross-asset-table');
+  const cross = state.data.cross_asset || {};
+  const names = Object.keys(cross);
+  if (!names.length) {
+    tableEl.innerHTML = empty('还没有跨资产回测结果，运行一次 bootstrap 后生成');
+    return;
+  }
+  const rows = names.map((name) => {
+    const c = cross[name] || {};
+    const recent = c.recent_90 || {};
+    return [
+      `<b>${escapeHtml(String(c.symbol || name).toUpperCase())}</b>`,
+      `<span class="mono">${c.samples ?? '--'}</span>`,
+      `<span class="dim">${escapeHtml(c.start || '--')} ~ ${escapeHtml(c.end || '--')}</span>`,
+      `<span class="mono ${c.accuracy >= 0.5 ? 'green' : 'red'}">${formatPct(c.accuracy, 2)}</span>`,
+      `<span class="mono">${c.auc == null ? '--' : Number(c.auc).toFixed(3)}</span>`,
+      `<span class="mono ${pctClass(c.strategy_return)}">${formatSignedPct(c.strategy_return)}</span>`,
+      `<span class="mono dim">${formatSignedPct(c.strategy_return_gross)}</span>`,
+      `<span class="mono">${c.brier == null ? '--' : Number(c.brier).toFixed(4)}</span>`,
+      `<span class="mono">${c.ece == null ? '--' : Number(c.ece).toFixed(4)}</span>`,
+      `<span class="mono ${c.recent_90 && recent.accuracy >= 0.5 ? 'green' : 'red'}">${formatPct(recent.accuracy, 2)}</span>`,
+    ];
+  });
+  tableEl.innerHTML = table(['资产', '样本', '回测区间', '方向胜率', 'AUC', '扣费后收益', '未计成本', 'Brier', 'ECE', '近90天'], rows);
+}
+
+function renderCrossAssetChart() {
+  const el = $('cross-asset-chart');
+  if (!el || !window.echarts) return;
+  const cross = state.data.cross_asset || {};
+  const names = Object.keys(cross);
+  if (!names.length) {
+    el.innerHTML = empty();
+    return;
+  }
+  if (!state.charts.cross) state.charts.cross = echarts.init(el);
+  const labels = names.map((n) => String(cross[n].symbol || n).toUpperCase());
+  const accuracy = names.map((n) => Number(cross[n].accuracy) * 100 || 0);
+  const netReturn = names.map((n) => Number(cross[n].strategy_return) * 100 || 0);
+  state.charts.cross.setOption({
+    backgroundColor: 'transparent',
+    animation: false,
+    grid: { left: 48, right: 60, top: 34, bottom: 30 },
+    legend: { textStyle: { color: '#8a9ab5', fontSize: 10 }, top: 4 },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      backgroundColor: 'rgba(12, 20, 35, 0.96)',
+      borderColor: 'rgba(120, 150, 200, 0.25)',
+      textStyle: { color: '#e6edf8', fontSize: 11 },
+      formatter: (params) => {
+        const lines = params.map((p) => `${p.marker}${p.seriesName}：<b>${Number(p.value).toFixed(2)}%</b>`);
+        return `${params[0].axisValue}<br/>${lines.join('<br/>')}`;
+      },
+    },
+    xAxis: {
+      type: 'category',
+      data: labels,
+      axisLine: { lineStyle: { color: '#243149' } },
+      axisTick: { show: false },
+      axisLabel: { color: '#a6b4cc', fontSize: 11 },
+    },
+    yAxis: [
+      {
+        type: 'value',
+        name: '胜率',
+        min: 40,
+        max: 70,
+        splitLine: { lineStyle: { color: 'rgba(120,150,200,0.08)' } },
+        axisLabel: { color: '#667792', fontSize: 9, formatter: (v) => `${v}%` },
+      },
+      {
+        type: 'value',
+        name: '收益',
+        splitLine: { show: false },
+        axisLabel: { color: '#667792', fontSize: 9, formatter: (v) => `${v}%` },
+      },
+    ],
+    series: [
+      {
+        name: '方向胜率',
+        type: 'bar',
+        data: accuracy,
+        barMaxWidth: 42,
+        itemStyle: { color: 'rgba(88,199,255,0.75)', borderRadius: [4, 4, 0, 0] },
+        markLine: {
+          silent: true,
+          symbol: 'none',
+          lineStyle: { color: '#ffc857', type: 'dashed', width: 1 },
+          label: { color: '#ffc857', fontSize: 9, formatter: '50%' },
+          data: [{ yAxis: 50 }],
+        },
+      },
+      {
+        name: '扣费后收益',
+        type: 'bar',
+        yAxisIndex: 1,
+        data: netReturn,
+        barMaxWidth: 42,
+        itemStyle: {
+          borderRadius: [4, 4, 0, 0],
+          color: (params) => (params.value >= 0 ? 'rgba(47,211,154,0.7)' : 'rgba(255,93,120,0.7)'),
+        },
+      },
+    ],
+  }, true);
 }
 
 function renderLiveTable() {
@@ -759,6 +956,8 @@ function renderModelInfo() {
     <div class="info-row"><span>最后训练日</span><b>${escapeHtml(m.last_training_date || '--')}</b></div>
     <div class="info-row"><span>预测目标</span><b>${escapeHtml((state.data.prediction || {}).target_date || '--')}（UTC 收盘）</b></div>
     <div class="info-row"><span>模型</span><b>HGB 分类 + HGB 回归</b></div>
+    <div class="info-row"><span>概率校准</span><b>${escapeHtml(m.calibration_method || '--')}</b></div>
+    <div class="info-row"><span>交易成本</span><b>手续费+滑点+资金费</b></div>
   `;
 }
 
@@ -774,6 +973,7 @@ function activateTab(tab) {
   setTimeout(() => {
     if (tab === 'backtest') renderRollingChart();
     if (tab === 'features') renderImportanceChart();
+    if (tab === 'cross') renderCrossAssetChart();
     resizeCharts();
   }, 30);
 }
@@ -790,6 +990,10 @@ function renderAll() {
   renderModelTable();
   renderConfidence();
   renderConfusion();
+  renderSignificance();
+  renderCost();
+  renderCalibration();
+  renderCrossAsset();
   renderLiveTable();
   renderValidation();
   renderFailures();
@@ -824,7 +1028,7 @@ async function loadDashboard(silent = false) {
 
 async function runUpdate() {
   if (state.busy) return;
-  if (!window.confirm('更新会抓取最新数据、重建特征并重新训练模型，可能需要 1–2 分钟。继续吗？')) return;
+  if (!window.confirm('更新会抓取最新数据、重建特征并重新训练（含概率校准与周线模型），可能需要 3–6 分钟。继续吗？')) return;
   state.busy = true;
   const btn = $('refresh-btn');
   btn.disabled = true;

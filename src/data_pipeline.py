@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 
 from config import (
+    ASSET_SYMBOLS,
     DATA_DIR,
     HISTORY_START,
     NEWS_BACKFILL_DAYS,
@@ -58,15 +59,19 @@ def _load(name: str) -> pd.DataFrame:
     return df
 
 
-def fetch_binance_klines(start: str = HISTORY_START) -> pd.DataFrame:
-    """Fetch all daily BTCUSDT candles from Binance spot."""
+def fetch_binance_klines(
+    symbol: str = SYMBOL,
+    name: str = "btc_daily",
+    start: str = HISTORY_START,
+) -> pd.DataFrame:
+    """Fetch all daily candles for one Binance spot symbol."""
     start_ms = int(pd.Timestamp(start, tz="UTC").timestamp() * 1000)
     rows: list[list[object]] = []
     cursor = start_ms
     while True:
         url = (
             "https://api.binance.com/api/v3/klines"
-            f"?symbol={SYMBOL}&interval=1d&startTime={cursor}&limit=1000"
+            f"?symbol={symbol}&interval=1d&startTime={cursor}&limit=1000"
         )
         batch = get_json(url, timeout=30)
         if not isinstance(batch, list) or not batch:
@@ -79,7 +84,7 @@ def fetch_binance_klines(start: str = HISTORY_START) -> pd.DataFrame:
         time.sleep(0.15)
 
     if not rows:
-        raise RuntimeError("Binance returned no BTCUSDT candles")
+        raise RuntimeError(f"Binance returned no {symbol} candles")
 
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     records = []
@@ -102,7 +107,7 @@ def fetch_binance_klines(start: str = HISTORY_START) -> pd.DataFrame:
             }
         )
     df = pd.DataFrame(records).drop_duplicates("date").sort_values("date").reset_index(drop=True)
-    _save(df, "btc_daily.csv")
+    _save(df, f"{name}.csv")
     return df
 
 
@@ -477,9 +482,68 @@ def build_dataset() -> pd.DataFrame:
     return btc
 
 
+def _btc_context() -> pd.DataFrame:
+    """BTC market context shared by all assets in the cross-asset test."""
+    btc = _load("btc_daily.csv")
+    columns = ["date", "btc_ret_1", "btc_ret_7", "btc_ret_30", "btc_vol_14"]
+    if btc.empty:
+        return pd.DataFrame(columns=columns)
+    btc = btc[_as_bool(btc["complete"])].sort_values("date").drop_duplicates("date")
+    out = btc[["date", "close"]].copy()
+    out["btc_ret_1"] = out["close"].pct_change(fill_method=None)
+    out["btc_ret_7"] = out["close"].pct_change(7, fill_method=None)
+    out["btc_ret_30"] = out["close"].pct_change(30, fill_method=None)
+    log_ret = np.log(out["close"] / out["close"].shift(1))
+    out["btc_vol_14"] = log_ret.rolling(14, min_periods=7).std()
+    return out[columns]
+
+
+def build_cross_asset_dataset(name: str) -> pd.DataFrame:
+    """Common-feature raw dataset for BTC/ETH/SOL generalisation checks.
+
+    Deliberately excludes asset-specific on-chain and derivatives series so the
+    three assets use exactly the same feature columns.
+    """
+    asset = _load(f"{name}_daily.csv")
+    if asset.empty:
+        asset = fetch_binance_klines(symbol=ASSET_SYMBOLS[name], name=f"{name}_daily")
+    asset = asset[_as_bool(asset["complete"])].copy()
+    asset = asset.sort_values("date").drop_duplicates("date")
+
+    fng = _load("fear_greed.csv")
+    if not fng.empty:
+        asset = asset.merge(fng[["date", "fng_value"]], on="date", how="left")
+
+    for macro_name in YAHOO_SYMBOLS:
+        macro = _load(f"macro_{macro_name}.csv")
+        if not macro.empty:
+            macro = macro.rename(columns={"close": f"{macro_name}_close"})
+            asset = asset.merge(macro[["date", f"{macro_name}_close"]], on="date", how="left")
+
+    news_daily = _load("news_daily.csv")
+    if news_daily.empty:
+        news_daily = aggregate_news()
+    if not news_daily.empty:
+        asset = asset.merge(news_daily.drop(columns=["news_count"], errors="ignore"), on="date", how="left")
+        asset["news_available"] = asset["news_available"].where(asset["news_available"] > 0)
+
+    btc = _btc_context()
+    if not btc.empty:
+        asset = asset.merge(btc, on="date", how="left")
+
+    asset = asset.sort_values("date").reset_index(drop=True)
+    _save(asset, f"dataset_raw_cross_{name}.csv")
+    return asset
+
+
+def build_all_cross_asset_datasets() -> dict[str, pd.DataFrame]:
+    return {name: build_cross_asset_dataset(name) for name in ASSET_SYMBOLS}
+
+
 def refresh_all(include_news: bool = True, news_days: int = NEWS_BACKFILL_DAYS) -> None:
-    print("[1/7] BTC daily candles", flush=True)
-    fetch_binance_klines()
+    print("[1/7] Daily candles (BTC/ETH/SOL)", flush=True)
+    for name, symbol in ASSET_SYMBOLS.items():
+        fetch_binance_klines(symbol=symbol, name=f"{name}_daily")
     print("[2/7] Fear & Greed", flush=True)
     fetch_fear_greed()
     print("[3/7] Macro (Yahoo)", flush=True)

@@ -186,26 +186,34 @@ def add_target(df: pd.DataFrame) -> pd.DataFrame:
     df["target_close"] = df["close"].shift(-1)
     df["target_return"] = df["target_close"] / df["close"] - 1
     df["target_direction"] = np.where(df["target_return"].notna(), (df["target_return"] > 0).astype(float), np.nan)
+    df["target_close_7"] = df["close"].shift(-7)
+    df["target_return_7"] = df["target_close_7"] / df["close"] - 1
+    df["target_direction_7"] = np.where(df["target_return_7"].notna(), (df["target_return_7"] > 0).astype(float), np.nan)
     return df
 
 
-def build_features() -> pd.DataFrame:
-    raw = _load("dataset_raw.csv")
+def build_features(
+    raw_name: str = "dataset_raw.csv",
+    out_name: str = "dataset_features.csv",
+    feature_columns: list[str] | None = None,
+) -> pd.DataFrame:
+    feature_columns = feature_columns or FEATURE_COLUMNS
+    raw = _load(raw_name)
     if raw.empty:
-        raise RuntimeError("dataset_raw.csv is empty; run data refresh first")
+        raise RuntimeError(f"{raw_name} is empty; run data refresh first")
     df = add_technical_features(raw)
     df = add_external_features(df)
     df = add_target(df)
-    for col in FEATURE_COLUMNS:
+    for col in feature_columns:
         _ensure_column(df, col)
-    df[FEATURE_COLUMNS] = df[FEATURE_COLUMNS].replace([np.inf, -np.inf], np.nan)
+    df[feature_columns] = df[feature_columns].replace([np.inf, -np.inf], np.nan)
     out = df.sort_values("date").reset_index(drop=True)
-    out.to_csv(DATA_DIR / "dataset_features.csv", index=False, encoding="utf-8-sig")
+    out.to_csv(DATA_DIR / out_name, index=False, encoding="utf-8-sig")
     return out
 
 
-def load_features() -> pd.DataFrame:
-    path = DATA_DIR / "dataset_features.csv"
+def load_features(name: str = "dataset_features.csv") -> pd.DataFrame:
+    path = DATA_DIR / name
     if not path.exists():
         return pd.DataFrame()
     df = pd.read_csv(path, encoding="utf-8-sig")

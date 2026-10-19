@@ -32,6 +32,32 @@ MIN_TRAIN_DAYS = 500
 TEST_BLOCK_DAYS = 30
 RANDOM_STATE = 42
 TARGET_HORIZON = 1
+WEEKLY_HORIZON = 7
+
+# Execution assumptions for the long/short strategy (100% notional, no leverage).
+# Fees and slippage are charged on every unit of notional traded; a long->short
+# flip therefore pays both legs. Funding is paid/received every 8h.
+TAKER_FEE_RATE = float(os.getenv("BTC_PRED_FEE", "0.0004"))
+SLIPPAGE_RATE = float(os.getenv("BTC_PRED_SLIPPAGE", "0.0002"))
+FUNDING_SETTLEMENTS_PER_DAY = 3
+DEFAULT_FUNDING_RATE_8H = 0.0001
+
+# Probability calibration. "sigmoid" is Platt scaling, "isotonic" is
+# non-parametric; calibration is fitted inside each walk-forward training slice
+# via cross-validation, so the test block is never used.
+CALIBRATION_METHOD = os.getenv("BTC_PRED_CALIBRATION", "sigmoid").strip().lower()
+CALIBRATION_CV = 3
+
+# Significance tests.
+BOOTSTRAP_ROUNDS = 2000
+BLOCK_BOOTSTRAP_BLOCK = 10
+
+# Cross-asset generalisation check targets.
+ASSET_SYMBOLS = {
+    "btc": "BTCUSDT",
+    "eth": "ETHUSDT",
+    "sol": "SOLUSDT",
+}
 
 YAHOO_SYMBOLS = {
     "dxy": "DX-Y.NYB",
@@ -84,3 +110,12 @@ FEATURE_COLUMNS = [
     "addr_change_1", "addr_z_30", "hashrate_change_7",
     "fees_z_30", "mempool_z_30", "miner_rev_change_7",
 ]
+
+# The cross-asset model deliberately drops BTC-only on-chain/derivatives
+# features so BTC/ETH/SOL are compared on an identical common feature set.
+CROSS_ASSET_FEATURES = [
+    col
+    for col in FEATURE_COLUMNS
+    if col != "days_since_halving"
+    and not col.startswith(("addr_", "hashrate_", "fees_", "mempool_", "miner_", "funding_", "oi_", "long_short_"))
+] + ["btc_ret_1", "btc_ret_7", "btc_ret_30", "btc_vol_14"]
